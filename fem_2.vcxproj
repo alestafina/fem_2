@@ -146,6 +146,9 @@
   <ItemGroup>
     <ClInclude Include="fem_2.h" />
   </ItemGroup>
+  <ItemGroup>
+    <Text Include="time.txt" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

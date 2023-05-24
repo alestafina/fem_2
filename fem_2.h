@@ -14,7 +14,7 @@ struct matrix {
 
 class FEM {
 protected:
-   matrix Mm, G;                      // матрицы массы и жесткости для 
+   matrix Mchi, Msigma, G;            // матрицы массы и жесткости для 
    matrix A;                          // итоговая матрица
    vector<vector<double>> loc_M;      // локальная матрица масс
    vector<vector<double>> loc_G;      // локальная матрица жесткости
@@ -22,7 +22,10 @@ protected:
    vector<double> F;                  // вектор правой части
    vector<double> q_real;             // ожидаемые значения весов
                                       
+   vector<double> q;                  // вектор весов (ответ)
    vector<double> d;                  // вектор правой части нестац. задачи
+   vector<double> q_init_2, q_init_1; // начальные условия
+   vector<double> times;              // временная сетка
 
    vector<double> x_nodes, y_nodes;   // сетка по x и y
    vector<int> nodes;                 // глобальные номера узлов 
@@ -31,26 +34,27 @@ protected:
    vector<int> first_bc, second_bc, thrid_bc; // узлы, в которых выполнены ку
 
    int N, M, nx, ny;                  // кол-во конечных элементов, кол-во узлов
-   int hx, hy, ht;                    // шаги сетки
+   double hx, hy, ht;                 // шаги сетки
    double betta, lambda, chi, sigma;
 public:
    FEM();
    ~FEM();
 
    int n_times;                       // количество временных слоев 
-   vector<double> q_init_0, q_init_1; // начальные условия
-   vector<double> times;              // временная сетка
-   vector<double> q;                  // вектор весов (ответ)
    
    void read_data();                  // ввод данных
+   void read_time_nonform();          // чтение неравномерной сетки времени
    void making_grid();                // составление стеки
    void making_time_grid();           // составление временной сетки
-   void build_portrait(matrix &A);     // составление портрета матрицы по сетке
+   void init_cond();                  // подсчет начальных условий
+   
+   void build_portrait(matrix &A);    // составление портрета матрицы по сетке
    void glob_M();                     // вычисление глобальной матрицы масс
    void glob_G();                     // вычисление глобальной матрицы жесткости
    void glob_F(double t);             // вычисление глобального вектора правой части
-   void time_scheme(double dt);       // вычисление векторов правой части и матриц А
-// void glob_matrix();                // сборка глобальной матрицы
+   void time_scheme_d(int i);         // вычисление векторов правой части 
+   void time_scheme_A();              // вычисление матрицы А
+   void time_scheme_nonform(int i);   // аппроксмация по неравномерн. сетке времени
    void add_elem(int i, int j, double elem, matrix &A); // добавление элемента в глобальную матрицу
    vector<double> matr_vec_mult(vector<double> &x, matrix &A); // умножение матрицы на вектор
 
@@ -59,7 +63,7 @@ public:
    void second_cond(double t);        // учет второго краевого условия
    void first_cond(double t);         // учет первого краевого условия
 
-   void print_result(double t);
+   void print_result(int l);
 };
 
 class Functions {

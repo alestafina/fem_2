@@ -30,4 +30,7 @@
       <Filter>Файлы заголовков</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <Text Include="time.txt" />
+  </ItemGroup>
 </Project>

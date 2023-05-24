@@ -59,7 +59,8 @@ void CGM::ILU_precond() {
 }
 
 void CGM::set_vector() {
-   q.resize(M);
+   for (int i = 0; i < M; i++)
+      q[i] = 0.0;
 }
 
 vector<double> CGM::matr_vec_mult(vector<double> &x, bool flag) {
@@ -77,7 +78,7 @@ vector<double> CGM::matr_vec_mult(vector<double> &x, bool flag) {
 
 double CGM::dot_product(vector<double> &a, vector<double> &b) {
    double result = 0.0;
-   for (int i = 0; i < N; ++i)
+   for (int i = 0; i < M; ++i)
       result += a[i] * b[i];
    return result;
 }
@@ -135,6 +136,9 @@ vector<double> CGM::reverse(vector<double> &U, vector<double> &D, vector<double>
 
 void CGM::CGM_precond_ILU() {
    double a, b, r_next, r_prev;
+   
+   k = 0;
+   residual = 10.0;
 
    set_vector();
    ILU_precond();
@@ -142,6 +146,7 @@ void CGM::CGM_precond_ILU() {
    norm = dot_product(d, d);
    buf1 = matr_vec_mult(q, 0);
 
+   r.clear();
    r.resize(M);
 
    for (int i = 0; i < M; i++) { // r0 = f - Ax0
@@ -184,4 +189,6 @@ void CGM::CGM_precond_ILU() {
       ++k;
    }
    q = reverse(au_LU, q); // x = U(-1)x
+   q_init_2 = q_init_1;
+   q_init_1 = q;
 }

@@ -1,11 +1,11 @@
 #include "fem_2.h"
 
 double Functions::func(double x, double y, double t) {
-   return 1;
+   return 0.1 * (x + y);
 }
 
 double Functions::u_g(double x, double y, double t) {
-   return x + y + t;
+   return (x + y) * t;
 }
 
 double Functions::u_betta(double x, double y, double t) {
@@ -17,12 +17,13 @@ double Functions::theta(double x, double y, double t) {
 }
 
 double Functions::u_real(double x, double y, double t) {
-   return x + y + t;
+   return (x + y) * t;
 }
 
 FEM::FEM() {
    A = matrix();
-   Mm = matrix();
+   Msigma = matrix();
+   Mchi = matrix();
    G = matrix();
    loc_M = vector<vector<double>>();
    loc_G = vector<vector<double>>();
@@ -33,7 +34,7 @@ FEM::FEM() {
 
    d = vector<double>();
    times = vector<double>();
-   q_init_0 = vector<double>();
+   q_init_2 = vector<double>();
    q_init_1 = vector<double>();
 
    x_nodes = vector<double>();
@@ -68,7 +69,7 @@ FEM::~FEM() {
    thrid_bc.~vector();
    d.~vector();
    times.~vector();
-   q_init_0.~vector();
+   q_init_2.~vector();
    q_init_1.~vector();
 }
 
@@ -105,20 +106,23 @@ void FEM::making_grid() {
    W.resize(N);
    for (int i = 0; i < N; i++) W[i].resize(4);
 
-   for (int i = 0; i < nx - 1; i++) {
-      for (int j = 0; j < ny - 1; j++) {
-         W[i * (ny - 1) + j][0] = i;
-         W[i * (ny - 1) + j][1] = i + 1;
-         W[i * (ny - 1) + j][2] = j;
-         W[i * (ny - 1) + j][3] = j + 1;
+   for (int i = 0; i < ny - 1; i++) {
+      for (int j = 0; j < nx - 1; j++) {
+         W[i * (nx - 1) + j][0] = j;
+         W[i * (nx - 1) + j][1] = j + 1;
+         W[i * (nx - 1) + j][2] = i;
+         W[i * (nx - 1) + j][3] = i + 1;
       }
    }
 
    A.di.resize(M);
    A.ig.resize(M + 1);
 
-   Mm.di.resize(M);
-   Mm.ig.resize(M + 1);
+   Msigma.di.resize(M);
+   Msigma.ig.resize(M + 1);
+
+   Mchi.di.resize(M);
+   Mchi.ig.resize(M + 1);
 
    G.di.resize(M);
    G.ig.resize(M + 1);
@@ -131,21 +135,37 @@ void FEM::making_grid() {
 
    loc_f.resize(4);
    F.resize(M);
+
+   d.resize(M);
+   q.resize(M);
 }
 
 void FEM::making_time_grid() {
-   Functions init;
    ht = (times[n_times - 1] - times[0]) / (n_times - 1.0);
    for (int i = 1; i < n_times; i++) times[i] = times[i - 1] + ht;
+}
 
-   q_init_0.resize(M);
+void FEM::init_cond() {
+   Functions init;
+   q_init_2.resize(M);
    q_init_1.resize(M);
    for (int i = 0; i < nx; i++) {
       for (int j = 0; j < ny; j++) {
-         q_init_0[i + j * nx] = init.u_g(x_nodes[i], y_nodes[j], times[0]);
-         q_init_1[i + j * nx] = init.u_g(x_nodes[i], y_nodes[j], times[1]);
+         q_init_2[i + j * nx] = init.u_real(x_nodes[i], y_nodes[j], times[0]);
+         q_init_1[i + j * nx] = init.u_real(x_nodes[i], y_nodes[j], times[1]);
       }
-    }
+   }
+}
+
+void FEM::read_time_nonform() {
+   ifstream gridT("time.txt");
+   times.clear();
+   n_times = 0;
+
+   gridT >> n_times;
+
+   times.resize(n_times);
+   for (int i = 0; i < n_times; i++) gridT >> times[i];
 }
 
 void FEM::build_portrait(matrix &A) {
@@ -186,12 +206,12 @@ void FEM::glob_M() {
    vector<double> g_nodes(4);
    double el1, el2, el3, el4;
 
-   build_portrait(Mm);
+   build_portrait(Msigma);
 
    for (int i = 0; i < N; i++) {
-      el1 = hx * hy / 9.0;
-      el2 = el3 = hx * hy / 18.0;
-      el4 = hx * hy / 36.0;
+      el1 = sigma *hx * hy / 9.0;
+      el2 = el3 = sigma * hx * hy / 18.0;
+      el4 = sigma * hx * hy / 36.0;
 
       loc_M[0][0] = el1, loc_M[0][1] = el2, loc_M[0][2] = el3, loc_M[0][3] = el4;
       loc_M[1][0] = el2, loc_M[1][1] = el1, loc_M[1][2] = el4, loc_M[1][3] = el3;
@@ -205,7 +225,31 @@ void FEM::glob_M() {
       
       for (int j = 0; j < 4; j++) {
          for (int l = 0; l < 4; l++) {
-            add_elem(g_nodes[j], g_nodes[l], loc_M[j][l], Mm);
+            add_elem(g_nodes[j], g_nodes[l], loc_M[j][l], Msigma);
+         }
+      }
+   }
+   
+   build_portrait(Mchi);
+
+   for (int i = 0; i < N; i++) {
+      el1 = chi * hx * hy / 9.0;
+      el2 = el3 = chi * hx * hy / 18.0;
+      el4 = chi * hx * hy / 36.0;
+
+      loc_M[0][0] = el1, loc_M[0][1] = el2, loc_M[0][2] = el3, loc_M[0][3] = el4;
+      loc_M[1][0] = el2, loc_M[1][1] = el1, loc_M[1][2] = el4, loc_M[1][3] = el3;
+      loc_M[2][0] = el3, loc_M[2][1] = el4, loc_M[2][2] = el1, loc_M[2][3] = el2;
+      loc_M[3][0] = el4, loc_M[3][1] = el3, loc_M[3][2] = el2, loc_M[3][3] = el1;
+
+      g_nodes[0] = nx * W[i][2] + W[i][0];
+      g_nodes[1] = nx * W[i][2] + W[i][1];
+      g_nodes[2] = nx * W[i][3] + W[i][0];
+      g_nodes[3] = nx * W[i][3] + W[i][1];
+
+      for (int j = 0; j < 4; j++) {
+         for (int l = 0; l < 4; l++) {
+            add_elem(g_nodes[j], g_nodes[l], loc_M[j][l], Mchi);
          }
       }
    }
@@ -216,6 +260,7 @@ void FEM::glob_G() {
    double el1, el2, el3, el4;
 
    build_portrait(G);
+   build_portrait(A);
 
    for (int i = 0; i < N; i++) {
       el1 = lambda / 6.0 * 2.0 * (hy / hx + hx / hy);
@@ -281,57 +326,6 @@ vector<double> FEM::matr_vec_mult(vector<double> &x, matrix &A) {
    return result;
 }
 
-//void FEM::glob_matrix() {
-//   double el1, el2, el3, el4;
-//   vector<int> g_nodes(4);
-//   Functions func;
-//
-//   build_portrait();
-//
-//   for (int i = 0; i < N; i++) {
-//      el1 = lambda / 6.0 * 2.0 * (hy / hx + hx / hy);
-//      el2 = lambda / 6.0 * ((-2.0 * hy) / hx + hx / hy);
-//      el3 = lambda / 6.0 * (hy / hx + (-2.0 * hx) / hy);
-//      el4 = -lambda / 6.0 * (hy / hx + hx / hy);
-//
-//      loc_G[0][0] = el1, loc_G[0][1] = el2, loc_G[0][2] = el3, loc_G[0][3] = el4;
-//      loc_G[1][0] = el2, loc_G[1][1] = el1, loc_G[1][2] = el4, loc_G[1][3] = el3;
-//      loc_G[2][0] = el3, loc_G[2][1] = el4, loc_G[2][2] = el1, loc_G[2][3] = el2;
-//      loc_G[3][0] = el4, loc_G[3][1] = el3, loc_G[3][2] = el2, loc_G[3][3] = el1;
-//
-//      el1 = gamma * hx * hy / 9.0;
-//      el2 = el3 = gamma * hx * hy / 18.0;
-//      el4 = gamma * hx * hy / 36.0;
-//
-//      loc_M[0][0] = el1, loc_M[0][1] = el2, loc_M[0][2] = el3, loc_M[0][3] = el4;
-//      loc_M[1][0] = el2, loc_M[1][1] = el1, loc_M[1][2] = el4, loc_M[1][3] = el3;
-//      loc_M[2][0] = el3, loc_M[2][1] = el4, loc_M[2][2] = el1, loc_M[2][3] = el2;
-//      loc_M[3][0] = el4, loc_M[3][1] = el3, loc_M[3][2] = el2, loc_M[3][3] = el1;
-//
-//      el1 = func.func(x_nodes[W[i][0]], y_nodes[W[i][2]]);
-//      el2 = func.func(x_nodes[W[i][1]], y_nodes[W[i][2]]);
-//      el3 = func.func(x_nodes[W[i][0]], y_nodes[W[i][3]]);
-//      el4 = func.func(x_nodes[W[i][1]], y_nodes[W[i][3]]);
-//
-//      loc_f[0] = hx * hy / 36.0 * (4.0 * el1 + 2.0 * el2 + 2.0 * el3 + el4);
-//      loc_f[1] = hx * hy / 36.0 * (2.0 * el1 + 4.0 * el2 + el3 + 2.0 * el4);
-//      loc_f[2] = hx * hy / 36.0 * (2.0 * el1 + el2 + 4.0 * el3 + 2.0 * el4);
-//      loc_f[3] = hx * hy / 36.0 * (el1 + 2.0 * el2 + 2.0 * el3 + 4.0 * el4);
-//
-//      g_nodes[0] = nx * W[i][2] + W[i][0];
-//      g_nodes[1] = nx * W[i][2] + W[i][1];
-//      g_nodes[2] = nx * W[i][3] + W[i][0];
-//      g_nodes[3] = nx * W[i][3] + W[i][1];
-//
-//      for (int j = 0; j < 4; j++) {
-//         for (int l = 0; l < 4; l++) {
-//            add_elem(g_nodes[j], g_nodes[l], loc_M[j][l] + loc_G[j][l]);
-//         }
-//         F[g_nodes[j]] += loc_f[j];
-//      }
-//   }
-//}
-
 void FEM::add_elem(int i, int j, double elem, matrix &A) {
    int k = 0;
    if (i == j) {
@@ -351,57 +345,148 @@ void FEM::add_elem(int i, int j, double elem, matrix &A) {
    }
 }
 
-void FEM::time_scheme(double dt) {
-   matrix tmpMatrix = Mm;
-   vector<double> tmpVect(M);
-   
-   build_portrait(A);
-
+void FEM::time_scheme_A() {
    // считаем матрицу СЛАУ на i-том слое
-   for (int j = 0; j < Mm.al.size(); j++) {
-      A.al[j] = (chi * Mm.al[j]) / (dt * dt) + (sigma * Mm.al[j]) / (2 * dt);
-      A.au[j] = (chi * Mm.au[j]) / (dt * dt) + (sigma * Mm.au[j]) / (2 * dt);
+   for (int j = 0; j < Mchi.al.size(); j++) {
+      A.al[j] = (Mchi.al[j] / (ht * ht)) + (Msigma.al[j] / (2.0 * ht));
+      A.au[j] = (Mchi.au[j] / (ht * ht)) + (Msigma.au[j] / (2.0 * ht));
    }
-   for (int j = 0; j < Mm.di.size(); j++) {
-      A.di[j] = (chi * Mm.di[j]) / (dt * dt) + (sigma * Mm.di[j]) / (2 * dt);
+   for (int j = 0; j < Mchi.di.size(); j++) {
+      A.di[j] = (Mchi.di[j] / (ht * ht)) + (Msigma.di[j] / (2.0 * ht));
    }
+}
 
-   // считаем ветор правой части на i-том слое
+void FEM::time_scheme_d(int i) {
+   matrix tmpMatrix = Mchi;
+   vector<double> tmpVect(M);
+
+   d.clear();
+   F.clear();
+   d.resize(M);
+   F.resize(M);
+
+   // считаем вектор правой части на i-том слое
+   glob_F(times[i - 1]);
    d = F;
-   for (int j = 0; j < Mm.al.size(); j++) {
-      tmpMatrix.al[j] = (2.0 * chi * Mm.al[j]) / (dt * dt);
-      tmpMatrix.au[j] = (2.0 * chi * Mm.au[j]) / (dt * dt);
+
+   for (int j = 0; j < Mchi.al.size(); j++) {
+      tmpMatrix.al[j] = (2.0 * Mchi.al[j]) / (ht * ht);
+      tmpMatrix.au[j] = (2.0 * Mchi.au[j]) / (ht * ht);
    }
-   for (int j = 0; j < Mm.di.size(); j++) {
-      tmpMatrix.di[j] = (2.0 * chi * Mm.di[j]) / (dt * dt);
+   for (int j = 0; j < Mchi.di.size(); j++) {
+      tmpMatrix.di[j] = (2.0 * Mchi.di[j]) / (ht * ht);
    }
    tmpVect = matr_vec_mult(q_init_1, tmpMatrix);
    for (int j = 0; j < M; j++) d[j] += tmpVect[j];
 
-   tmpMatrix = Mm;
-   for (int j = 0; j < Mm.al.size(); j++) {
-      tmpMatrix.al[j] = (chi * Mm.al[j]) / (dt * dt);
-      tmpMatrix.au[j] = (chi * Mm.au[j]) / (dt * dt);
+
+   for (int j = 0; j < Mchi.al.size(); j++) {
+      tmpMatrix.al[j] = (Mchi.al[j]) / (ht * ht);
+      tmpMatrix.au[j] = (Mchi.au[j]) / (ht * ht);
    }
-   for (int j = 0; j < Mm.di.size(); j++) {
-      tmpMatrix.di[j] = (chi * Mm.di[j]) / (dt * dt);
+   for (int j = 0; j < Mchi.di.size(); j++) {
+      tmpMatrix.di[j] = (Mchi.di[j]) / (ht * ht);
    }
-   tmpVect = matr_vec_mult(q_init_0, tmpMatrix);
+   tmpVect = matr_vec_mult(q_init_2, tmpMatrix);
    for (int j = 0; j < M; j++) d[j] -= tmpVect[j];
 
-   tmpMatrix = Mm;
-   for (int j = 0; j < Mm.al.size(); j++) {
-      tmpMatrix.al[j] = (sigma * Mm.al[j]) / (2 * dt);
-      tmpMatrix.au[j] = (sigma * Mm.au[j]) / (2 * dt);
+
+   for (int j = 0; j < Msigma.al.size(); j++) {
+      tmpMatrix.al[j] = (Msigma.al[j]) / (2.0 * ht);
+      tmpMatrix.au[j] = (Msigma.au[j]) / (2.0 * ht);
    }
-   for (int j = 0; j < Mm.di.size(); j++) {
-      tmpMatrix.di[j] = (sigma * Mm.di[j]) / (2 * dt);
+   for (int j = 0; j < Msigma.di.size(); j++) {
+      tmpMatrix.di[j] = (Msigma.di[j]) / (2.0 * ht);
    }
-   tmpVect = matr_vec_mult(q_init_0, tmpMatrix);
+   tmpVect = matr_vec_mult(q_init_2, tmpMatrix);
    for (int j = 0; j < M; j++) d[j] += tmpVect[j];
+
 
    tmpVect = matr_vec_mult(q_init_1, G);
    for (int j = 0; j < M; j++) d[j] -= tmpVect[j];
+
+   first_cond(times[i]);
+}
+
+void FEM::time_scheme_nonform(int i) {
+   double dt = times[i] - times[i - 2];
+   double dt0 = times[i] - times[i - 1];
+   double dt1 = times[i - 1] - times[i - 2];
+
+   matrix tmpMatrix = Mchi;
+   vector<double> tmpVec(M);
+
+   A.di.clear();
+   A.al.clear();
+   A.au.clear();
+   d.clear();
+   F.clear();
+   A.di.resize(M);
+   A.al.resize(A.ig.back());
+   A.au.resize(A.ig.back());
+   d.resize(M);
+   F.resize(M);
+
+   // matrix A
+   for (int k = 0; k < A.al.size(); k++) {
+      A.al[k] = ((2.0 * Mchi.al[k]) / (dt * dt0)) + ((dt1 * Msigma.al[k]) / (dt * dt0));
+      A.au[k] = ((2.0 * Mchi.au[k]) / (dt * dt0)) + ((dt1 * Msigma.au[k]) / (dt * dt0));
+   }
+   for (int k = 0; k < A.di.size(); k++) {
+      A.di[k] = ((2.0 * Mchi.di[k]) / (dt * dt0)) + ((dt1 * Msigma.di[k]) / (dt * dt0));
+   }
+
+   // vector d
+   glob_F(times[i - 1]);
+   d = F;
+   for (int k = 0; k < Mchi.al.size(); k++) {
+      tmpMatrix.al[k] = (2.0 * Mchi.al[k]) / (dt * dt1);
+      tmpMatrix.au[k] = (2.0 * Mchi.au[k]) / (dt * dt1);
+   }
+   for (int k = 0; k < Mchi.di.size(); k++) {
+      tmpMatrix.di[k] = (2.0 * Mchi.di[k]) / (dt * dt1);
+   }
+   tmpVec = matr_vec_mult(q_init_2, tmpMatrix);
+   for (int k = 0; k < M; k++) d[k] -= tmpVec[k];
+
+
+   for (int k = 0; k < Mchi.al.size(); k++) {
+      tmpMatrix.al[k] = (2.0 * Mchi.al[k]) / (dt0 * dt1);
+      tmpMatrix.au[k] = (2.0 * Mchi.au[k]) / (dt0 * dt1);
+   }
+   for (int k = 0; k < Mchi.di.size(); k++) {
+      tmpMatrix.di[k] = (2.0 * Mchi.di[k]) / (dt0 * dt1);
+   }
+   tmpVec = matr_vec_mult(q_init_1, tmpMatrix);
+   for (int k = 0; k < M; k++) d[k] += tmpVec[k];
+
+
+   for (int k = 0; k < Msigma.al.size(); k++) {
+      tmpMatrix.al[k] = (dt0 * Msigma.al[k]) / (dt * dt1);
+      tmpMatrix.au[k] = (dt0 * Msigma.au[k]) / (dt * dt1);
+   }
+   for (int k = 0; k < Mchi.di.size(); k++) {
+      tmpMatrix.di[k] = (dt0 * Msigma.di[k]) / (dt * dt1);
+   }
+   tmpVec = matr_vec_mult(q_init_2, tmpMatrix);
+   for (int k = 0; k < M; k++) d[k] += tmpVec[k];
+
+
+   for (int k = 0; k < Msigma.al.size(); k++) {
+      tmpMatrix.al[k] = ((dt0 - dt1) * Msigma.al[k]) / (dt0 * dt1);
+      tmpMatrix.au[k] = ((dt0 - dt1) * Msigma.au[k]) / (dt0 * dt1);
+   }
+   for (int k = 0; k < Mchi.di.size(); k++) {
+      tmpMatrix.di[k] = ((dt0 - dt1) * Msigma.di[k]) / (dt0 * dt1);
+   }
+   tmpVec = matr_vec_mult(q_init_1, tmpMatrix);
+   for (int k = 0; k < M; k++) d[k] += tmpVec[k];
+
+
+   tmpVec = matr_vec_mult(q_init_1, G);
+   for (int k = 0; k < M; k++) d[k] += tmpVec[k];
+
+   first_cond(times[i]);
 }
 
 void FEM::read_boundary() {
@@ -537,7 +622,7 @@ void FEM::first_cond(double t) {
    }
 }
 
-void FEM::print_result(double t) {
+void FEM::print_result(int l) {
    double error = 0.0;
    Functions func;
 
@@ -550,9 +635,9 @@ void FEM::print_result(double t) {
    q_real.resize(M);
    for (int j = 0; j < ny; j++) {
       for (int i = 0; i < nx; i++) {
-         q_real[j * nx + i] = func.u_real(x_nodes[i], y_nodes[j], t);
+         q_real[j * nx + i] = func.u_real(x_nodes[i], y_nodes[j], times[l]);
          error = abs(q_real[j * nx + i] - q[j * nx + i]);
-         ans << scientific << t << ";" << q[j * nx + i] << ";" << q_real[j * nx + i] << ";" << error << ";" << endl;
+         ans << scientific << times[l] << ";" << q[j * nx + i] << ";" << q_real[j * nx + i] << ";" << error << ";" << endl;
       }
    }
 
